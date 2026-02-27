@@ -1,4 +1,4 @@
-# 🎬 X → TikTok AI Video Creator — Setup Guide
+# 🎬 X → TikTok AI Video Creator
 
 This app converts trending X (Twitter) topics into TikTok-ready videos using AI.  
 **It works out of the box with mock data — no API keys required to try it.**
