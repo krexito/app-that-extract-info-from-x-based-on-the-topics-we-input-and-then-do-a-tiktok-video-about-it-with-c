@@ -124,9 +124,9 @@ export async function POST(request: NextRequest) {
     // If no video URL, we can't upload but can provide instructions
     if (!video_url) {
       return NextResponse.json({
-        status: "no_credentials",
+        status: "pending",
         message:
-          "No video URL provided. Generate a video first, then upload to TikTok.",
+          "No video URL provided. Generate a video first using a video API (D-ID or Runway), then upload to TikTok.",
         share_url: `https://www.tiktok.com/upload`,
       } as TikTokUploadResponse);
     }

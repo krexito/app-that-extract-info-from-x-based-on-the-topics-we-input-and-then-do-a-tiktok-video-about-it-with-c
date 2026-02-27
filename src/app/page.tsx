@@ -388,62 +388,67 @@ export default function Home() {
                 </div>
               </div>
 
-              {xData[selectedTopicIndex] && (
-                <div className="space-y-4">
-                  {/* Summary */}
-                  <div className="bg-white/3 rounded-xl p-4">
-                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Summary</div>
-                    <p className="text-sm text-white/80 leading-relaxed">
-                      {xData[selectedTopicIndex].summary}
-                    </p>
-                  </div>
-
-                  {/* Key Points */}
-                  <div>
-                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Key Points</div>
-                    <div className="space-y-2">
-                      {xData[selectedTopicIndex].key_points.map((point, i) => (
-                        <div key={i} className="flex gap-3 bg-white/3 rounded-xl p-3">
-                          <span className="text-indigo-400 font-bold text-sm flex-shrink-0">{i + 1}.</span>
-                          <p className="text-sm text-white/70">{point}</p>
-                        </div>
-                      ))}
+              {(() => {
+                const safeIndex = Math.min(selectedTopicIndex, xData.length - 1);
+                const currentTopic = xData[safeIndex];
+                if (!currentTopic) return null;
+                return (
+                  <div className="space-y-4">
+                    {/* Summary */}
+                    <div className="bg-white/3 rounded-xl p-4">
+                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Summary</div>
+                      <p className="text-sm text-white/80 leading-relaxed">
+                        {currentTopic.summary}
+                      </p>
                     </div>
-                  </div>
 
-                  {/* Hashtags */}
-                  <div>
-                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Hashtags</div>
-                    <div className="flex flex-wrap gap-2">
-                      {xData[selectedTopicIndex].hashtags.map((tag, i) => (
-                        <span
-                          key={i}
-                          className="px-3 py-1 bg-indigo-500/15 border border-indigo-500/25 rounded-full text-xs text-indigo-300"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Top Posts */}
-                  <div>
-                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Top Posts</div>
-                    <div className="space-y-2">
-                      {xData[selectedTopicIndex].posts.slice(0, 3).map((post) => (
-                        <div key={post.id} className="bg-white/3 rounded-xl p-3">
-                          <p className="text-sm text-white/70 mb-2">{post.text.substring(0, 140)}{post.text.length > 140 ? "..." : ""}</p>
-                          <div className="flex items-center gap-4 text-xs text-white/30">
-                            <span>@{post.author}</span>
-                            <span>❤️ {post.likes.toLocaleString()}</span>
-                            <span>🔁 {post.retweets.toLocaleString()}</span>
+                    {/* Key Points */}
+                    <div>
+                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Key Points</div>
+                      <div className="space-y-2">
+                        {currentTopic.key_points.map((point, i) => (
+                          <div key={i} className="flex gap-3 bg-white/3 rounded-xl p-3">
+                            <span className="text-indigo-400 font-bold text-sm flex-shrink-0">{i + 1}.</span>
+                            <p className="text-sm text-white/70">{point}</p>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Hashtags */}
+                    <div>
+                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Hashtags</div>
+                      <div className="flex flex-wrap gap-2">
+                        {currentTopic.hashtags.map((tag, i) => (
+                          <span
+                            key={i}
+                            className="px-3 py-1 bg-indigo-500/15 border border-indigo-500/25 rounded-full text-xs text-indigo-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top Posts */}
+                    <div>
+                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Top Posts</div>
+                      <div className="space-y-2">
+                        {currentTopic.posts.slice(0, 3).map((post) => (
+                          <div key={post.id} className="bg-white/3 rounded-xl p-3">
+                            <p className="text-sm text-white/70 mb-2">{post.text.substring(0, 140)}{post.text.length > 140 ? "..." : ""}</p>
+                            <div className="flex items-center gap-4 text-xs text-white/30">
+                              <span>@{post.author}</span>
+                              <span>❤️ {post.likes.toLocaleString()}</span>
+                              <span>🔁 {post.retweets.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
 
@@ -455,15 +460,16 @@ export default function Home() {
                   🎬 Video Script
                 </h2>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
-                    videoData.status === "ready" ? "bg-green-500/20 text-green-400" :
-                    videoData.status === "generating" ? "bg-yellow-500/20 text-yellow-400" :
-                    "bg-indigo-500/20 text-indigo-400"
-                  }`}>
-                    {videoData.status === "script_ready" ? "Script Ready" :
-                     videoData.status === "generating" ? "Generating..." :
-                     videoData.status === "ready" ? "Video Ready" : videoData.status}
-                  </span>
+                    <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                      videoData.status === "ready" ? "bg-green-500/20 text-green-400" :
+                      videoData.status === "generating" ? "bg-yellow-500/20 text-yellow-400" :
+                      videoData.status === "script_ready" ? "bg-indigo-500/20 text-indigo-400" :
+                      "bg-red-500/20 text-red-400"
+                    }`}>
+                      {videoData.status === "script_ready" ? "Script Ready" :
+                       videoData.status === "generating" ? "Generating..." :
+                       videoData.status === "ready" ? "Video Ready ✓" : videoData.status}
+                    </span>
                   <span className="text-xs text-white/30">{videoData.script.total_duration}s</span>
                 </div>
               </div>

@@ -160,11 +160,13 @@ async function generateVideoWithAI(
   if (runwayApiKey) {
     try {
       const response = await axios.post(
-        "https://api.runwayml.com/v1/image_to_video",
+        "https://api.runwayml.com/v1/tasks",
         {
-          promptText: `TikTok style video about ${topic}: ${script.hook}`,
+          taskType: "text_to_video",
           model: "gen3a_turbo",
+          textPrompt: `TikTok style video about ${topic}: ${script.hook}`,
           duration: Math.min(script.total_duration, 10),
+          ratio: "768:1280",
         },
         {
           headers: {

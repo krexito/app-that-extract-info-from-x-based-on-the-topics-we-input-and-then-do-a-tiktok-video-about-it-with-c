@@ -173,7 +173,7 @@ function generateSummary(posts: XPost[], topic: string): string {
     (sum, p) => sum + p.likes + p.retweets,
     0
   );
-  const topPost = posts.sort((a, b) => b.likes - a.likes)[0];
+  const topPost = [...posts].sort((a, b) => b.likes - a.likes)[0];
 
   return `${topic} is generating massive buzz on X with ${totalEngagement.toLocaleString()} total engagements. The conversation is dominated by breaking news, expert analysis, and viral takes. Top voices are sharing insights that are reshaping how people think about this topic. The most viral post by @${topPost?.author || "unknown"} captured the community's attention with ${topPost?.likes?.toLocaleString() || 0} likes.`;
 }
