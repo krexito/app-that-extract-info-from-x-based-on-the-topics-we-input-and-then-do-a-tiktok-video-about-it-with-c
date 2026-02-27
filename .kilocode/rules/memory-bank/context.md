@@ -15,6 +15,8 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] Memory bank documentation
 - [x] Recipe system for common features
 - [x] X → TikTok AI Video Creator app built
+- [x] 5 bugs fixed + free API alternatives (Reddit, HuggingFace, Pexels)
+- [x] High-priority UX improvements: video preview player, multi-topic parallel generation, localStorage history, copy script button, data source badge
 
 ## Current Structure
 
