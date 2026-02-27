@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ExtractXResponse } from "./api/extract-x/route";
 import type { GenerateVideoResponse } from "./api/generate-video/route";
 import type { TikTokUploadResponse } from "./api/upload-tiktok/route";
@@ -13,14 +13,78 @@ interface StepStatus {
   detail?: string;
 }
 
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  topics: string[];
+  xData: ExtractXResponse[];
+  videoData: GenerateVideoResponse[];
+  uploadData: TikTokUploadResponse | null;
+}
+
 export default function Home() {
   const [topics, setTopics] = useState<string[]>(["", "", ""]);
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string>("");
   const [xData, setXData] = useState<ExtractXResponse[]>([]);
-  const [videoData, setVideoData] = useState<GenerateVideoResponse | null>(null);
+  const [videoData, setVideoData] = useState<GenerateVideoResponse[]>([]);
   const [uploadData, setUploadData] = useState<TikTokUploadResponse | null>(null);
   const [selectedTopicIndex, setSelectedTopicIndex] = useState(0);
+  const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  // Load history from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("xtiktok_history");
+      if (saved) {
+        setHistory(JSON.parse(saved));
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
+
+  const saveToHistory = (
+    currentTopics: string[],
+    currentXData: ExtractXResponse[],
+    currentVideoData: GenerateVideoResponse[],
+    currentUploadData: TikTokUploadResponse | null
+  ) => {
+    const entry: HistoryEntry = {
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      topics: currentTopics,
+      xData: currentXData,
+      videoData: currentVideoData,
+      uploadData: currentUploadData,
+    };
+    const updated = [entry, ...history].slice(0, 10); // keep last 10
+    setHistory(updated);
+    try {
+      localStorage.setItem("xtiktok_history", JSON.stringify(updated));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const loadFromHistory = (entry: HistoryEntry) => {
+    setTopics(entry.topics);
+    setXData(entry.xData);
+    setVideoData(entry.videoData);
+    setUploadData(entry.uploadData);
+    setSelectedTopicIndex(0);
+    setSelectedVideoIndex(0);
+    setStep("done");
+    setShowHistory(false);
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem("xtiktok_history");
+  };
 
   const stepStatuses: StepStatus[] = [
     {
@@ -36,16 +100,16 @@ export default function Home() {
       detail: xData.length > 0 ? `${xData.length} topic(s) extracted` : undefined,
     },
     {
-      label: "Generate Video",
+      label: "Generate Videos",
       status:
         step === "generating"
           ? "active"
           : ["generated", "uploading", "done"].includes(step)
           ? "done"
-          : step === "error" && xData.length > 0 && !videoData
+          : step === "error" && xData.length > 0 && videoData.length === 0
           ? "error"
           : "pending",
-      detail: videoData ? `Script: ${videoData.script.total_duration}s video` : undefined,
+      detail: videoData.length > 0 ? `${videoData.length} video(s) generated` : undefined,
     },
     {
       label: "Upload to TikTok",
@@ -54,7 +118,7 @@ export default function Home() {
           ? "active"
           : step === "done"
           ? "done"
-          : step === "error" && videoData && !uploadData
+          : step === "error" && videoData.length > 0 && !uploadData
           ? "error"
           : "pending",
       detail: uploadData?.status === "uploaded" ? "Live on TikTok! 🎉" : uploadData?.status === "no_credentials" ? "Manual upload needed" : undefined,
@@ -79,6 +143,31 @@ export default function Home() {
 
   const validTopics = topics.filter((t) => t.trim().length > 0);
 
+  const handleCopyScript = async () => {
+    const currentVideo = videoData[Math.min(selectedVideoIndex, videoData.length - 1)];
+    if (!currentVideo) return;
+
+    const scriptText = [
+      `🎬 ${currentVideo.script.title}`,
+      ``,
+      `🔥 HOOK: ${currentVideo.script.hook}`,
+      ``,
+      ...currentVideo.script.sections.map((s, i) => `${i + 1}. ${s.content}`),
+      ``,
+      `📣 CTA: ${currentVideo.script.call_to_action}`,
+      ``,
+      `⏱️ Duration: ${currentVideo.script.total_duration}s`,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(scriptText);
+      setCopiedScript(true);
+      setTimeout(() => setCopiedScript(false), 2000);
+    } catch {
+      // fallback: select text
+    }
+  };
+
   const handleRun = async () => {
     if (validTopics.length === 0) {
       setError("Please enter at least one topic");
@@ -87,7 +176,7 @@ export default function Home() {
 
     setError("");
     setXData([]);
-    setVideoData(null);
+    setVideoData([]);
     setUploadData(null);
 
     // Step 1: Extract from X
@@ -110,25 +199,30 @@ export default function Home() {
       return;
     }
 
-    // Step 2: Generate video for first topic
+    // Step 2: Generate video for ALL topics in parallel
     setStep("generating");
-    const primaryTopic = extractedData[0];
-    let generatedVideo: GenerateVideoResponse | null = null;
+    let generatedVideos: GenerateVideoResponse[] = [];
     try {
-      const res = await fetch("/api/generate-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: primaryTopic.topic,
-          summary: primaryTopic.summary,
-          key_points: primaryTopic.key_points,
-          hashtags: primaryTopic.hashtags,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to generate video");
-      generatedVideo = data;
-      setVideoData(generatedVideo);
+      const videoPromises = extractedData.map((topicData) =>
+        fetch("/api/generate-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: topicData.topic,
+            summary: topicData.summary,
+            key_points: topicData.key_points,
+            hashtags: topicData.hashtags,
+          }),
+        }).then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to generate video");
+          return data as GenerateVideoResponse;
+        })
+      );
+
+      generatedVideos = await Promise.all(videoPromises);
+      setVideoData(generatedVideos);
+      setSelectedVideoIndex(0);
       setStep("generated");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate video");
@@ -136,10 +230,13 @@ export default function Home() {
       return;
     }
 
-    // Step 3: Upload to TikTok
+    // Step 3: Upload primary video to TikTok
     setStep("uploading");
+    let finalUploadData: TikTokUploadResponse | null = null;
     try {
-      const captionsText = generatedVideo!.script.captions
+      const primaryVideo = generatedVideos[0];
+      const primaryTopic = extractedData[0];
+      const captionsText = primaryVideo.script.captions
         .map((c) => c.text)
         .join(" | ");
 
@@ -147,32 +244,45 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          video_url: generatedVideo!.video_url || "",
-          title: generatedVideo!.script.title,
+          video_url: primaryVideo.video_url || "",
+          title: primaryVideo.script.title,
           description: primaryTopic.summary,
           hashtags: primaryTopic.hashtags,
           captions_text: captionsText,
         }),
       });
       const data = await res.json();
-      setUploadData(data);
+      finalUploadData = data;
+      setUploadData(finalUploadData);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload to TikTok");
       setStep("error");
     }
+
+    // Save to history
+    saveToHistory(validTopics, extractedData, generatedVideos, finalUploadData);
   };
 
   const handleReset = () => {
     setStep("idle");
     setError("");
     setXData([]);
-    setVideoData(null);
+    setVideoData([]);
     setUploadData(null);
     setSelectedTopicIndex(0);
+    setSelectedVideoIndex(0);
   };
 
   const isRunning = ["extracting", "generating", "uploading"].includes(step);
+
+  const currentVideo = videoData.length > 0
+    ? videoData[Math.min(selectedVideoIndex, videoData.length - 1)]
+    : null;
+
+  const currentXTopic = xData.length > 0
+    ? xData[Math.min(selectedTopicIndex, xData.length - 1)]
+    : null;
 
   return (
     <main className="min-h-screen bg-[#0a0a0f] text-white">
@@ -188,12 +298,55 @@ export default function Home() {
               <p className="text-xs text-white/40 mt-0.5">AI Video Creator</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-white/30">
-            <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
-            Ready
+          <div className="flex items-center gap-3">
+            {history.length > 0 && (
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-xs transition-all"
+              >
+                🕐 History ({history.length})
+              </button>
+            )}
+            <div className="flex items-center gap-2 text-xs text-white/30">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+              Ready
+            </div>
           </div>
         </div>
       </header>
+
+      {/* History Panel */}
+      {showHistory && (
+        <div className="border-b border-white/5 bg-white/2">
+          <div className="max-w-5xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white/60">Recent Sessions</h3>
+              <button
+                onClick={clearHistory}
+                className="text-xs text-red-400/60 hover:text-red-400 transition-all"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {history.map((entry) => (
+                <button
+                  key={entry.id}
+                  onClick={() => loadFromHistory(entry)}
+                  className="text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all"
+                >
+                  <div className="text-xs text-white/60 font-medium truncate">
+                    {entry.topics.filter(Boolean).join(", ")}
+                  </div>
+                  <div className="text-xs text-white/30 mt-1">
+                    {new Date(entry.timestamp).toLocaleDateString()} · {entry.videoData.length} video(s)
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-6 py-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Panel - Input */}
@@ -351,10 +504,10 @@ export default function Home() {
               <h2 className="text-xl font-bold gradient-text mb-2">Ready to Create</h2>
               <p className="text-white/40 text-sm max-w-sm">
                 Enter your topics on the left, then click{" "}
-                <span className="text-indigo-400">Create TikTok Video</span> to extract trending content from X and auto-generate a TikTok video with captions.
+                <span className="text-indigo-400">Create TikTok Video</span> to extract trending content from X and auto-generate TikTok videos with captions.
               </p>
               <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-sm">
-                {["Extract X Data", "Generate Video", "Upload TikTok"].map((label, i) => (
+                {["Extract X Data", "Generate Videos", "Upload TikTok"].map((label, i) => (
                   <div key={i} className="glass-card rounded-xl p-3 text-center">
                     <div className="text-2xl mb-1">{["🐦", "🎥", "📱"][i]}</div>
                     <div className="text-xs text-white/40">{label}</div>
@@ -388,152 +541,241 @@ export default function Home() {
                 </div>
               </div>
 
-              {(() => {
-                const safeIndex = Math.min(selectedTopicIndex, xData.length - 1);
-                const currentTopic = xData[safeIndex];
-                if (!currentTopic) return null;
-                return (
-                  <div className="space-y-4">
-                    {/* Summary */}
-                    <div className="bg-white/3 rounded-xl p-4">
-                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Summary</div>
-                      <p className="text-sm text-white/80 leading-relaxed">
-                        {currentTopic.summary}
-                      </p>
+              {currentXTopic && (
+                <div className="space-y-4">
+                  {/* Data source badge */}
+                  {currentXTopic.data_source && (
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        currentXTopic.data_source === "twitter" ? "bg-sky-500/20 text-sky-400" :
+                        currentXTopic.data_source === "reddit" ? "bg-orange-500/20 text-orange-400" :
+                        "bg-white/10 text-white/40"
+                      }`}>
+                        {currentXTopic.data_source === "twitter" ? "🐦 Twitter" :
+                         currentXTopic.data_source === "reddit" ? "🟠 Reddit" : "🎭 Mock data"}
+                      </span>
                     </div>
+                  )}
 
-                    {/* Key Points */}
-                    <div>
-                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Key Points</div>
-                      <div className="space-y-2">
-                        {currentTopic.key_points.map((point, i) => (
-                          <div key={i} className="flex gap-3 bg-white/3 rounded-xl p-3">
-                            <span className="text-indigo-400 font-bold text-sm flex-shrink-0">{i + 1}.</span>
-                            <p className="text-sm text-white/70">{point}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                  {/* Summary */}
+                  <div className="bg-white/3 rounded-xl p-4">
+                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Summary</div>
+                    <p className="text-sm text-white/80 leading-relaxed">
+                      {currentXTopic.summary}
+                    </p>
+                  </div>
 
-                    {/* Hashtags */}
-                    <div>
-                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Hashtags</div>
-                      <div className="flex flex-wrap gap-2">
-                        {currentTopic.hashtags.map((tag, i) => (
-                          <span
-                            key={i}
-                            className="px-3 py-1 bg-indigo-500/15 border border-indigo-500/25 rounded-full text-xs text-indigo-300"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Top Posts */}
-                    <div>
-                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Top Posts</div>
-                      <div className="space-y-2">
-                        {currentTopic.posts.slice(0, 3).map((post) => (
-                          <div key={post.id} className="bg-white/3 rounded-xl p-3">
-                            <p className="text-sm text-white/70 mb-2">{post.text.substring(0, 140)}{post.text.length > 140 ? "..." : ""}</p>
-                            <div className="flex items-center gap-4 text-xs text-white/30">
-                              <span>@{post.author}</span>
-                              <span>❤️ {post.likes.toLocaleString()}</span>
-                              <span>🔁 {post.retweets.toLocaleString()}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                  {/* Key Points */}
+                  <div>
+                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Key Points</div>
+                    <div className="space-y-2">
+                      {currentXTopic.key_points.map((point, i) => (
+                        <div key={i} className="flex gap-3 bg-white/3 rounded-xl p-3">
+                          <span className="text-indigo-400 font-bold text-sm flex-shrink-0">{i + 1}.</span>
+                          <p className="text-sm text-white/70">{point}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                );
-              })()}
+
+                  {/* Hashtags */}
+                  <div>
+                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Hashtags</div>
+                    <div className="flex flex-wrap gap-2">
+                      {currentXTopic.hashtags.map((tag, i) => (
+                        <span
+                          key={i}
+                          className="px-3 py-1 bg-indigo-500/15 border border-indigo-500/25 rounded-full text-xs text-indigo-300"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top Posts */}
+                  <div>
+                    <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Top Posts</div>
+                    <div className="space-y-2">
+                      {currentXTopic.posts.slice(0, 3).map((post) => (
+                        <div key={post.id} className="bg-white/3 rounded-xl p-3">
+                          <p className="text-sm text-white/70 mb-2">{post.text.substring(0, 140)}{post.text.length > 140 ? "..." : ""}</p>
+                          <div className="flex items-center gap-4 text-xs text-white/30">
+                            <span>@{post.author}</span>
+                            <span>❤️ {post.likes.toLocaleString()}</span>
+                            <span>🔁 {post.retweets.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Video Script */}
-          {videoData && (
+          {/* Video Results */}
+          {videoData.length > 0 && (
             <div className="glass-card rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold text-white/90 flex items-center gap-2">
-                  🎬 Video Script
+                  🎬 Generated Videos
                 </h2>
                 <div className="flex items-center gap-2">
+                  {/* Video selector tabs */}
+                  {videoData.length > 1 && (
+                    <div className="flex gap-1">
+                      {videoData.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setSelectedVideoIndex(i)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            selectedVideoIndex === i
+                              ? "bg-purple-600 text-white"
+                              : "bg-white/5 text-white/40 hover:text-white/70"
+                          }`}
+                        >
+                          {xData[i]?.topic.substring(0, 10) || `Video ${i + 1}`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {currentVideo && (
                     <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
-                      videoData.status === "ready" ? "bg-green-500/20 text-green-400" :
-                      videoData.status === "generating" ? "bg-yellow-500/20 text-yellow-400" :
-                      videoData.status === "script_ready" ? "bg-indigo-500/20 text-indigo-400" :
+                      currentVideo.status === "ready" ? "bg-green-500/20 text-green-400" :
+                      currentVideo.status === "generating" ? "bg-yellow-500/20 text-yellow-400" :
+                      currentVideo.status === "script_ready" ? "bg-indigo-500/20 text-indigo-400" :
                       "bg-red-500/20 text-red-400"
                     }`}>
-                      {videoData.status === "script_ready" ? "Script Ready" :
-                       videoData.status === "generating" ? "Generating..." :
-                       videoData.status === "ready" ? "Video Ready ✓" : videoData.status}
+                      {currentVideo.status === "script_ready" ? "Script Ready" :
+                       currentVideo.status === "generating" ? "Generating..." :
+                       currentVideo.status === "ready" ? "Video Ready ✓" : currentVideo.status}
                     </span>
-                  <span className="text-xs text-white/30">{videoData.script.total_duration}s</span>
+                  )}
                 </div>
               </div>
 
-              {videoData.message && (
-                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 text-xs text-indigo-300">
-                  ℹ️ {videoData.message}
-                </div>
-              )}
+              {currentVideo && (
+                <>
+                  {currentVideo.message && (
+                    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 text-xs text-indigo-300">
+                      ℹ️ {currentVideo.message}
+                    </div>
+                  )}
 
-              {/* Hook */}
-              <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-4">
-                <div className="text-xs text-indigo-400 mb-1 uppercase tracking-wider">Hook</div>
-                <p className="text-white font-semibold">{videoData.script.hook}</p>
-              </div>
-
-              {/* Captions Timeline */}
-              <div>
-                <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Captions Timeline</div>
-                <div className="space-y-2">
-                  {videoData.script.captions.map((caption, i) => (
-                    <div key={i} className={`flex gap-3 rounded-xl p-3 border ${
-                      caption.style === "title" ? "bg-purple-500/10 border-purple-500/20" :
-                      caption.style === "highlight" ? "bg-indigo-500/10 border-indigo-500/20" :
-                      caption.style === "subtitle" ? "bg-blue-500/10 border-blue-500/20" :
-                      "bg-white/3 border-white/5"
-                    }`}>
-                      <div className="text-xs text-white/30 font-mono w-16 flex-shrink-0 pt-0.5">
-                        {caption.start_time}s–{caption.end_time}s
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-white/80">{caption.text}</p>
-                        <span className={`text-xs mt-1 inline-block px-2 py-0.5 rounded-full ${
-                          caption.style === "title" ? "bg-purple-500/20 text-purple-400" :
-                          caption.style === "highlight" ? "bg-indigo-500/20 text-indigo-400" :
-                          caption.style === "subtitle" ? "bg-blue-500/20 text-blue-400" :
-                          "bg-white/5 text-white/30"
-                        }`}>
-                          {caption.style}
-                        </span>
+                  {/* Video Preview + Script side by side */}
+                  <div className="flex gap-4">
+                    {/* Video / Thumbnail Preview */}
+                    <div className="flex-shrink-0">
+                      <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Preview</div>
+                      <div className="relative w-28 h-48 rounded-xl overflow-hidden border border-white/10 bg-black">
+                        {/* If we have a real video URL (not base64 data URL from HF), show video player */}
+                        {currentVideo.video_url && !currentVideo.video_url.startsWith("data:") ? (
+                          <video
+                            src={currentVideo.video_url}
+                            className="w-full h-full object-cover"
+                            controls
+                            playsInline
+                            poster={currentVideo.thumbnail_url}
+                          />
+                        ) : currentVideo.video_url && currentVideo.video_url.startsWith("data:") ? (
+                          /* Hugging Face base64 video */
+                          <video
+                            src={currentVideo.video_url}
+                            className="w-full h-full object-cover"
+                            controls
+                            playsInline
+                          />
+                        ) : currentVideo.thumbnail_url ? (
+                          /* Fallback: thumbnail only */
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={currentVideo.thumbnail_url}
+                              alt="Video thumbnail"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
+                                <span className="text-white text-lg ml-1">▶</span>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          /* No media yet */
+                          <div className="w-full h-full flex items-center justify-center text-white/20 text-3xl">
+                            🎬
+                          </div>
+                        )}
+                        {/* Video source badge */}
+                        {currentVideo.video_source && currentVideo.video_source !== "none" && (
+                          <div className="absolute bottom-1 left-1 right-1">
+                            <span className="block text-center text-xs bg-black/70 rounded px-1 py-0.5 text-white/60">
+                              {currentVideo.video_source === "did" ? "D-ID" :
+                               currentVideo.video_source === "runway" ? "Runway" :
+                               currentVideo.video_source === "huggingface" ? "HuggingFace" :
+                               currentVideo.video_source === "pexels" ? "Pexels" : ""}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              {/* Video Thumbnail */}
-              {videoData.thumbnail_url && (
-                <div>
-                  <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">Preview</div>
-                  <div className="relative w-32 h-56 rounded-xl overflow-hidden border border-white/10">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={videoData.thumbnail_url}
-                      alt="Video thumbnail"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
-                        <span className="text-white text-lg ml-1">▶</span>
+                    {/* Script info */}
+                    <div className="flex-1 min-w-0 space-y-3">
+                      {/* Hook */}
+                      <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 rounded-xl p-3">
+                        <div className="text-xs text-indigo-400 mb-1 uppercase tracking-wider">Hook</div>
+                        <p className="text-white font-semibold text-sm">{currentVideo.script.hook}</p>
+                      </div>
+
+                      {/* Duration + Copy button */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white/30">⏱️ {currentVideo.script.total_duration}s · {currentVideo.script.captions.length} captions</span>
+                        <button
+                          onClick={handleCopyScript}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            copiedScript
+                              ? "bg-green-500/20 text-green-400"
+                              : "bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80"
+                          }`}
+                        >
+                          {copiedScript ? "✓ Copied!" : "📋 Copy Script"}
+                        </button>
                       </div>
                     </div>
                   </div>
-                </div>
+
+                  {/* Captions Timeline */}
+                  <div>
+                    <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Captions Timeline</div>
+                    <div className="space-y-2">
+                      {currentVideo.script.captions.map((caption, i) => (
+                        <div key={i} className={`flex gap-3 rounded-xl p-3 border ${
+                          caption.style === "title" ? "bg-purple-500/10 border-purple-500/20" :
+                          caption.style === "highlight" ? "bg-indigo-500/10 border-indigo-500/20" :
+                          caption.style === "subtitle" ? "bg-blue-500/10 border-blue-500/20" :
+                          "bg-white/3 border-white/5"
+                        }`}>
+                          <div className="text-xs text-white/30 font-mono w-16 flex-shrink-0 pt-0.5">
+                            {caption.start_time}s–{caption.end_time}s
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm text-white/80">{caption.text}</p>
+                            <span className={`text-xs mt-1 inline-block px-2 py-0.5 rounded-full ${
+                              caption.style === "title" ? "bg-purple-500/20 text-purple-400" :
+                              caption.style === "highlight" ? "bg-indigo-500/20 text-indigo-400" :
+                              caption.style === "subtitle" ? "bg-blue-500/20 text-blue-400" :
+                              "bg-white/5 text-white/30"
+                            }`}>
+                              {caption.style}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
