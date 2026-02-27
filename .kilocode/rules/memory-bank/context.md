@@ -20,6 +20,7 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] Feature 5: Script editing step — new `script_review` pipeline stage with editable hook, sections, CTA before video generation
 - [x] Feature 7: Data source badge confirmed working (twitter/reddit/mock shown in UI)
 - [x] Feature 10: Vercel Cron scheduler — `/api/cron/auto-generate` runs hourly, `vercel.json` configured
+- [x] Debugging session: 6 bugs fixed, 3 UX improvements, Vitest test suite with 37 tests (2 files)
 
 ## Current Structure
 
@@ -32,6 +33,10 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 | `src/app/api/generate-video/route.ts` | POST: Build video script + captions, call D-ID/Runway; accepts edited_hook/sections/cta | ✅ Ready |
 | `src/app/api/upload-tiktok/route.ts` | POST: Upload video to TikTok via Content Posting API | ✅ Ready |
 | `src/app/api/cron/auto-generate/route.ts` | GET: Vercel Cron — auto-extract + generate + upload every hour | ✅ Ready |
+| `src/lib/script-utils.ts` | Pure utility functions (extractKeyPoints, extractHashtags, etc.) | ✅ Ready |
+| `src/lib/__tests__/script-utils.test.ts` | 17 unit tests for script utilities | ✅ Ready |
+| `src/lib/__tests__/api-logic.test.ts` | 20 tests for buildVideoScript, applyEditsToScript, pipeline | ✅ Ready |
+| `vitest.config.ts` | Vitest configuration | ✅ Ready |
 | `vercel.json` | Vercel Cron schedule (0 * * * * = every hour) | ✅ Ready |
 | `.env.local.example` | API key documentation (incl. CRON_SECRET, AUTO_TOPICS) | ✅ Ready |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
@@ -96,3 +101,4 @@ export async function GET() {
 | Date | Changes |
 |------|---------|
 | Initial | Template created with base setup |
+| 2026-02-27 | Debugging + improvements: 6 bugs fixed, 3 UX features added, Vitest test suite (37 tests, 2 files), `src/lib/script-utils.ts` extracted, `bun test` script added |

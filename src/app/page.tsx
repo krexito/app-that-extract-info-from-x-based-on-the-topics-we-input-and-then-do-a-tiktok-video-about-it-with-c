@@ -198,7 +198,21 @@ export default function Home() {
       setCopiedScript(true);
       setTimeout(() => setCopiedScript(false), 2000);
     } catch {
-      // fallback: select text
+      // Fallback for browsers without clipboard API
+      const textArea = document.createElement("textarea");
+      textArea.value = scriptText;
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopiedScript(true);
+        setTimeout(() => setCopiedScript(false), 2000);
+      } finally {
+        document.body.removeChild(textArea);
+      }
     }
   };
 
@@ -266,13 +280,18 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topics: validTopics }),
       });
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`;
+        try { const d = await res.json(); errMsg = d.error || errMsg; } catch { /* ignore */ }
+        throw new Error(errMsg);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to extract from X");
       extractedData = data.results;
       setXData(extractedData);
       setStep("extracted");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to extract from X");
+      const msg = err instanceof Error ? err.message : "Failed to extract from X";
+      setError(msg.includes("Failed to fetch") ? "Network error — please check your connection and try again." : msg);
       setStep("error");
       return;
     }
@@ -312,8 +331,12 @@ export default function Home() {
             edited_cta: edited.call_to_action,
           }),
         }).then(async (res) => {
+          if (!res.ok) {
+            let errMsg = `Server error (${res.status}) for topic "${topicData.topic}"`;
+            try { const d = await res.json(); errMsg = d.error || errMsg; } catch { /* ignore */ }
+            throw new Error(errMsg);
+          }
           const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Failed to generate video");
           return data as GenerateVideoResponse;
         });
       });
@@ -321,9 +344,11 @@ export default function Home() {
       generatedVideos = await Promise.all(videoPromises);
       setVideoData(generatedVideos);
       setSelectedVideoIndex(0);
+      setSelectedTopicIndex(0);
       setStep("generated");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate video");
+      const msg = err instanceof Error ? err.message : "Failed to generate video";
+      setError(msg.includes("Failed to fetch") ? "Network error — please check your connection and try again." : msg);
       setStep("error");
       return;
     }
@@ -358,7 +383,7 @@ export default function Home() {
       setStep("error");
     }
 
-    // Save to history
+    // Save to history — xData is already correctly set before handleGenerateVideos is called
     saveToHistory(validTopics, xData, generatedVideos, finalUploadData);
   };
 
@@ -625,6 +650,25 @@ export default function Home() {
             </div>
           )}
 
+          {/* Loading skeleton while extracting */}
+          {step === "extracting" && (
+            <div className="glass-card rounded-2xl p-6 space-y-4 animate-pulse">
+              <div className="h-5 bg-white/10 rounded-lg w-1/3"></div>
+              <div className="space-y-3">
+                <div className="h-20 bg-white/5 rounded-xl"></div>
+                <div className="space-y-2">
+                  <div className="h-12 bg-white/5 rounded-xl"></div>
+                  <div className="h-12 bg-white/5 rounded-xl"></div>
+                  <div className="h-12 bg-white/5 rounded-xl"></div>
+                </div>
+                <div className="flex gap-2">
+                  {[1,2,3,4].map(i => <div key={i} className="h-7 w-20 bg-white/5 rounded-full"></div>)}
+                </div>
+              </div>
+              <p className="text-xs text-white/30 text-center pt-2">Extracting data from X / Reddit...</p>
+            </div>
+          )}
+
           {/* X Data Results */}
           {xData.length > 0 && step !== "script_review" && (
             <div className="glass-card rounded-2xl p-6 space-y-4">
@@ -636,7 +680,10 @@ export default function Home() {
                   {xData.map((_, i) => (
                     <button
                       key={i}
-                      onClick={() => setSelectedTopicIndex(i)}
+                      onClick={() => {
+                        setSelectedTopicIndex(i);
+                        setSelectedVideoIndex(i); // keep video in sync
+                      }}
                       className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                         selectedTopicIndex === i
                           ? "bg-indigo-600 text-white"
@@ -763,9 +810,14 @@ export default function Home() {
                 <div className="space-y-4">
                   {/* Hook */}
                   <div>
-                    <label className="text-xs text-indigo-400 uppercase tracking-wider font-semibold mb-1.5 block">
-                      🔥 Hook (opening line)
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs text-indigo-400 uppercase tracking-wider font-semibold">
+                        🔥 Hook (opening line)
+                      </label>
+                      <span className={`text-xs font-mono ${editableScripts[editingScriptIndex].hook.length > 150 ? "text-red-400" : "text-white/30"}`}>
+                        {editableScripts[editingScriptIndex].hook.length}/150
+                      </span>
+                    </div>
                     <textarea
                       value={editableScripts[editingScriptIndex].hook}
                       onChange={(e) => updateEditableScript(editingScriptIndex, "hook", e.target.value)}
@@ -823,9 +875,14 @@ export default function Home() {
 
                   {/* CTA */}
                   <div>
-                    <label className="text-xs text-purple-400 uppercase tracking-wider font-semibold mb-1.5 block">
-                      📣 Call to Action
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs text-purple-400 uppercase tracking-wider font-semibold">
+                        📣 Call to Action
+                      </label>
+                      <span className={`text-xs font-mono ${editableScripts[editingScriptIndex].call_to_action.length > 100 ? "text-red-400" : "text-white/30"}`}>
+                        {editableScripts[editingScriptIndex].call_to_action.length}/100
+                      </span>
+                    </div>
                     <textarea
                       value={editableScripts[editingScriptIndex].call_to_action}
                       onChange={(e) => updateEditableScript(editingScriptIndex, "call_to_action", e.target.value)}

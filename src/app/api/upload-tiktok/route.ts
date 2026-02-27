@@ -131,13 +131,14 @@ export async function POST(request: NextRequest) {
       } as TikTokUploadResponse);
     }
 
-    const fullDescription = `${description}\n\n${captions_text || ""}\n\n${hashtags.join(" ")}`.substring(0, 2200);
+    const safeHashtags = Array.isArray(hashtags) ? hashtags : [];
+    const fullDescription = `${description}\n\n${captions_text || ""}\n\n${safeHashtags.join(" ")}`.substring(0, 2200);
 
     const result = await uploadToTikTok(
       video_url,
       title,
       fullDescription,
-      hashtags
+      safeHashtags
     );
 
     return NextResponse.json(result);

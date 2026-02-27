@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
 
     const results: ExtractXResponse[] = [];
 
-    for (const topic of topics.slice(0, 3)) {
+    for (const topic of topics.slice(0, 5)) {
       let posts: XPost[] | null = null;
       let dataSource: ExtractXResponse["data_source"] = "mock";
 

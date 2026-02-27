@@ -382,15 +382,17 @@ export async function POST(request: NextRequest) {
       edited_cta?: string;
     };
 
-    if (!topic || !summary || !key_points) {
+    if (!topic || !summary || !key_points || !Array.isArray(key_points)) {
       return NextResponse.json(
-        { error: "Missing required fields: topic, summary, key_points" },
+        { error: "Missing required fields: topic, summary, key_points (array)" },
         { status: 400 }
       );
     }
 
+    const safeHashtags = Array.isArray(hashtags) ? hashtags : [];
+
     // Build base script, then override with user edits if provided
-    let script = buildVideoScript(topic, summary, key_points, hashtags || []);
+    let script = buildVideoScript(topic, summary, key_points, safeHashtags);
     if (edited_hook || edited_sections || edited_cta) {
       script = applyEditsToScript(script, edited_hook, edited_sections, edited_cta);
     }
