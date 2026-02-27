@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import type { ExtractXResponse } from "./api/extract-x/route";
-import type { GenerateVideoResponse } from "./api/generate-video/route";
+import type { GenerateVideoResponse, VideoScript } from "./api/generate-video/route";
 import type { TikTokUploadResponse } from "./api/upload-tiktok/route";
 
-type Step = "idle" | "extracting" | "extracted" | "generating" | "generated" | "uploading" | "done" | "error";
+type Step = "idle" | "extracting" | "extracted" | "script_review" | "generating" | "generated" | "uploading" | "done" | "error";
 
 interface StepStatus {
   label: string;
@@ -22,6 +22,24 @@ interface HistoryEntry {
   uploadData: TikTokUploadResponse | null;
 }
 
+// Editable script state (mirrors VideoScript but all fields editable)
+interface EditableScript {
+  hook: string;
+  sections: { heading: string; content: string; duration: number }[];
+  call_to_action: string;
+}
+
+function buildEditableScript(topic: string, summary: string, keyPoints: string[], hashtags: string[]): EditableScript {
+  const hook = `🔥 ${topic.toUpperCase()} is BREAKING the internet right now`;
+  const sections = keyPoints.slice(0, 4).map((point, i) => ({
+    heading: `Point ${i + 1}`,
+    content: point.length > 100 ? point.substring(0, 100) + "..." : point,
+    duration: 8,
+  }));
+  const cta = `Follow for more! ${hashtags.slice(0, 4).join(" ")}`;
+  return { hook, sections, call_to_action: cta };
+}
+
 export default function Home() {
   const [topics, setTopics] = useState<string[]>(["", "", ""]);
   const [step, setStep] = useState<Step>("idle");
@@ -34,6 +52,10 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
+
+  // Script editing state — one editable script per topic
+  const [editableScripts, setEditableScripts] = useState<EditableScript[]>([]);
+  const [editingScriptIndex, setEditingScriptIndex] = useState(0);
 
   // Load history from localStorage on mount
   useEffect(() => {
@@ -92,12 +114,24 @@ export default function Home() {
       status:
         step === "extracting"
           ? "active"
-          : ["extracted", "generating", "generated", "uploading", "done"].includes(step)
+          : ["extracted", "script_review", "generating", "generated", "uploading", "done"].includes(step)
           ? "done"
           : step === "error" && xData.length === 0
           ? "error"
           : "pending",
       detail: xData.length > 0 ? `${xData.length} topic(s) extracted` : undefined,
+    },
+    {
+      label: "Review & Edit Script",
+      status:
+        step === "script_review"
+          ? "active"
+          : ["generating", "generated", "uploading", "done"].includes(step)
+          ? "done"
+          : step === "error" && xData.length > 0 && videoData.length === 0
+          ? "error"
+          : "pending",
+      detail: step === "script_review" ? "Edit before generating" : undefined,
     },
     {
       label: "Generate Videos",
@@ -168,6 +202,49 @@ export default function Home() {
     }
   };
 
+  // ── Script editing helpers ──────────────────────────────────────────────────
+
+  const updateEditableScript = (index: number, field: keyof EditableScript, value: string | EditableScript["sections"]) => {
+    setEditableScripts((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const updateSection = (scriptIndex: number, sectionIndex: number, field: "content" | "heading", value: string) => {
+    setEditableScripts((prev) => {
+      const updated = [...prev];
+      const sections = [...updated[scriptIndex].sections];
+      sections[sectionIndex] = { ...sections[sectionIndex], [field]: value };
+      updated[scriptIndex] = { ...updated[scriptIndex], sections };
+      return updated;
+    });
+  };
+
+  const addSection = (scriptIndex: number) => {
+    setEditableScripts((prev) => {
+      const updated = [...prev];
+      const sections = [...updated[scriptIndex].sections];
+      if (sections.length < 6) {
+        sections.push({ heading: `Point ${sections.length + 1}`, content: "", duration: 8 });
+      }
+      updated[scriptIndex] = { ...updated[scriptIndex], sections };
+      return updated;
+    });
+  };
+
+  const removeSection = (scriptIndex: number, sectionIndex: number) => {
+    setEditableScripts((prev) => {
+      const updated = [...prev];
+      const sections = updated[scriptIndex].sections.filter((_, i) => i !== sectionIndex);
+      updated[scriptIndex] = { ...updated[scriptIndex], sections };
+      return updated;
+    });
+  };
+
+  // ── Main pipeline ───────────────────────────────────────────────────────────
+
   const handleRun = async () => {
     if (validTopics.length === 0) {
       setError("Please enter at least one topic");
@@ -178,6 +255,7 @@ export default function Home() {
     setXData([]);
     setVideoData([]);
     setUploadData(null);
+    setEditableScripts([]);
 
     // Step 1: Extract from X
     setStep("extracting");
@@ -199,12 +277,28 @@ export default function Home() {
       return;
     }
 
-    // Step 2: Generate video for ALL topics in parallel
+    // Step 2: Build editable scripts and pause for user review
+    const scripts = extractedData.map((d) =>
+      buildEditableScript(d.topic, d.summary, d.key_points, d.hashtags)
+    );
+    setEditableScripts(scripts);
+    setEditingScriptIndex(0);
+    setStep("script_review");
+    // Pipeline pauses here — user clicks "Generate Videos" to continue
+  };
+
+  const handleGenerateVideos = async () => {
+    if (editableScripts.length === 0 || xData.length === 0) return;
+
+    setError("");
+
+    // Step 3: Generate video for ALL topics in parallel using edited scripts
     setStep("generating");
     let generatedVideos: GenerateVideoResponse[] = [];
     try {
-      const videoPromises = extractedData.map((topicData) =>
-        fetch("/api/generate-video", {
+      const videoPromises = xData.map((topicData, i) => {
+        const edited = editableScripts[i] || editableScripts[0];
+        return fetch("/api/generate-video", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -212,13 +306,17 @@ export default function Home() {
             summary: topicData.summary,
             key_points: topicData.key_points,
             hashtags: topicData.hashtags,
+            // Pass edited script fields to override auto-generated ones
+            edited_hook: edited.hook,
+            edited_sections: edited.sections,
+            edited_cta: edited.call_to_action,
           }),
         }).then(async (res) => {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Failed to generate video");
           return data as GenerateVideoResponse;
-        })
-      );
+        });
+      });
 
       generatedVideos = await Promise.all(videoPromises);
       setVideoData(generatedVideos);
@@ -230,12 +328,12 @@ export default function Home() {
       return;
     }
 
-    // Step 3: Upload primary video to TikTok
+    // Step 4: Upload primary video to TikTok
     setStep("uploading");
     let finalUploadData: TikTokUploadResponse | null = null;
     try {
       const primaryVideo = generatedVideos[0];
-      const primaryTopic = extractedData[0];
+      const primaryTopic = xData[0];
       const captionsText = primaryVideo.script.captions
         .map((c) => c.text)
         .join(" | ");
@@ -261,7 +359,7 @@ export default function Home() {
     }
 
     // Save to history
-    saveToHistory(validTopics, extractedData, generatedVideos, finalUploadData);
+    saveToHistory(validTopics, xData, generatedVideos, finalUploadData);
   };
 
   const handleReset = () => {
@@ -272,6 +370,7 @@ export default function Home() {
     setUploadData(null);
     setSelectedTopicIndex(0);
     setSelectedVideoIndex(0);
+    setEditableScripts([]);
   };
 
   const isRunning = ["extracting", "generating", "uploading"].includes(step);
@@ -366,14 +465,14 @@ export default function Home() {
                     value={topic}
                     onChange={(e) => updateTopic(i, e.target.value)}
                     placeholder={`Topic ${i + 1}...`}
-                    disabled={isRunning}
+                    disabled={isRunning || step === "script_review"}
                     className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-indigo-500/60 focus:bg-white/8 transition-all disabled:opacity-50"
-                    onKeyDown={(e) => e.key === "Enter" && !isRunning && handleRun()}
+                    onKeyDown={(e) => e.key === "Enter" && !isRunning && step !== "script_review" && handleRun()}
                   />
                   {topics.length > 1 && (
                     <button
                       onClick={() => removeTopic(i)}
-                      disabled={isRunning}
+                      disabled={isRunning || step === "script_review"}
                       className="w-9 h-9 rounded-xl bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all flex items-center justify-center text-sm disabled:opacity-50"
                     >
                       ×
@@ -386,7 +485,7 @@ export default function Home() {
             {topics.length < 5 && (
               <button
                 onClick={addTopic}
-                disabled={isRunning}
+                disabled={isRunning || step === "script_review"}
                 className="w-full py-2 rounded-xl border border-dashed border-white/10 text-white/30 hover:text-white/60 hover:border-white/20 text-sm transition-all disabled:opacity-50"
               >
                 + Add topic
@@ -394,8 +493,13 @@ export default function Home() {
             )}
 
             <button
-              onClick={isRunning ? undefined : step === "done" || step === "error" ? handleReset : handleRun}
-              disabled={isRunning || validTopics.length === 0}
+              onClick={
+                isRunning ? undefined
+                : step === "done" || step === "error" ? handleReset
+                : step === "script_review" ? undefined
+                : handleRun
+              }
+              disabled={isRunning || validTopics.length === 0 || step === "script_review"}
               className={`w-full py-3 rounded-xl font-semibold text-sm transition-all ${
                 isRunning
                   ? "bg-indigo-600/50 text-white/60 cursor-not-allowed"
@@ -403,6 +507,8 @@ export default function Home() {
                   ? "bg-green-600 hover:bg-green-500 text-white"
                   : step === "error"
                   ? "bg-red-600 hover:bg-red-500 text-white"
+                  : step === "script_review"
+                  ? "bg-white/5 text-white/30 cursor-not-allowed"
                   : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/20"
               }`}
             >
@@ -415,6 +521,8 @@ export default function Home() {
                 "🔄 Create Another"
               ) : step === "error" ? (
                 "↩ Try Again"
+              ) : step === "script_review" ? (
+                "✏️ Review scripts below →"
               ) : (
                 "🚀 Create TikTok Video"
               )}
@@ -506,10 +614,10 @@ export default function Home() {
                 Enter your topics on the left, then click{" "}
                 <span className="text-indigo-400">Create TikTok Video</span> to extract trending content from X and auto-generate TikTok videos with captions.
               </p>
-              <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-sm">
-                {["Extract X Data", "Generate Videos", "Upload TikTok"].map((label, i) => (
+              <div className="mt-8 grid grid-cols-4 gap-4 w-full max-w-md">
+                {["Extract X Data", "Edit Script", "Generate Videos", "Upload TikTok"].map((label, i) => (
                   <div key={i} className="glass-card rounded-xl p-3 text-center">
-                    <div className="text-2xl mb-1">{["🐦", "🎥", "📱"][i]}</div>
+                    <div className="text-2xl mb-1">{["🐦", "✏️", "🎥", "📱"][i]}</div>
                     <div className="text-xs text-white/40">{label}</div>
                   </div>
                 ))}
@@ -518,7 +626,7 @@ export default function Home() {
           )}
 
           {/* X Data Results */}
-          {xData.length > 0 && (
+          {xData.length > 0 && step !== "script_review" && (
             <div className="glass-card rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold text-white/90 flex items-center gap-2">
@@ -609,6 +717,131 @@ export default function Home() {
                       ))}
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Script Review & Edit Panel ─────────────────────────────────── */}
+          {step === "script_review" && editableScripts.length > 0 && (
+            <div className="glass-card rounded-2xl p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-white/90 flex items-center gap-2">
+                    ✏️ Review & Edit Scripts
+                  </h2>
+                  <p className="text-xs text-white/40 mt-0.5">Customize the hook, sections, and CTA before generating videos</p>
+                </div>
+                <button
+                  onClick={handleGenerateVideos}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-semibold shadow-lg shadow-indigo-500/20 transition-all"
+                >
+                  🎬 Generate Videos
+                </button>
+              </div>
+
+              {/* Topic tabs */}
+              {editableScripts.length > 1 && (
+                <div className="flex gap-1 flex-wrap">
+                  {xData.map((d, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setEditingScriptIndex(i)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        editingScriptIndex === i
+                          ? "bg-indigo-600 text-white"
+                          : "bg-white/5 text-white/40 hover:text-white/70"
+                      }`}
+                    >
+                      {d.topic.substring(0, 14)}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {editableScripts[editingScriptIndex] && (
+                <div className="space-y-4">
+                  {/* Hook */}
+                  <div>
+                    <label className="text-xs text-indigo-400 uppercase tracking-wider font-semibold mb-1.5 block">
+                      🔥 Hook (opening line)
+                    </label>
+                    <textarea
+                      value={editableScripts[editingScriptIndex].hook}
+                      onChange={(e) => updateEditableScript(editingScriptIndex, "hook", e.target.value)}
+                      rows={2}
+                      className="w-full bg-indigo-500/10 border border-indigo-500/25 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 focus:outline-none focus:border-indigo-500/60 transition-all resize-none"
+                      placeholder="Your attention-grabbing opening line..."
+                    />
+                  </div>
+
+                  {/* Sections */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-white/40 uppercase tracking-wider font-semibold">
+                        📋 Sections
+                      </label>
+                      {editableScripts[editingScriptIndex].sections.length < 6 && (
+                        <button
+                          onClick={() => addSection(editingScriptIndex)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-all"
+                        >
+                          + Add section
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {editableScripts[editingScriptIndex].sections.map((section, si) => (
+                        <div key={si} className="flex gap-2 items-start">
+                          <div className="flex-1 bg-white/3 border border-white/8 rounded-xl p-3 space-y-2">
+                            <input
+                              value={section.heading}
+                              onChange={(e) => updateSection(editingScriptIndex, si, "heading", e.target.value)}
+                              className="w-full bg-transparent text-xs text-white/50 focus:outline-none focus:text-white/80 transition-all"
+                              placeholder="Section heading..."
+                            />
+                            <textarea
+                              value={section.content}
+                              onChange={(e) => updateSection(editingScriptIndex, si, "content", e.target.value)}
+                              rows={2}
+                              className="w-full bg-transparent text-sm text-white/80 focus:outline-none resize-none"
+                              placeholder="Section content..."
+                            />
+                          </div>
+                          {editableScripts[editingScriptIndex].sections.length > 1 && (
+                            <button
+                              onClick={() => removeSection(editingScriptIndex, si)}
+                              className="w-8 h-8 mt-1 rounded-lg bg-white/5 hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-all flex items-center justify-center text-sm flex-shrink-0"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* CTA */}
+                  <div>
+                    <label className="text-xs text-purple-400 uppercase tracking-wider font-semibold mb-1.5 block">
+                      📣 Call to Action
+                    </label>
+                    <textarea
+                      value={editableScripts[editingScriptIndex].call_to_action}
+                      onChange={(e) => updateEditableScript(editingScriptIndex, "call_to_action", e.target.value)}
+                      rows={2}
+                      className="w-full bg-purple-500/10 border border-purple-500/25 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 focus:outline-none focus:border-purple-500/60 transition-all resize-none"
+                      placeholder="Your closing call to action..."
+                    />
+                  </div>
+
+                  {/* Generate button (bottom) */}
+                  <button
+                    onClick={handleGenerateVideos}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-semibold shadow-lg shadow-indigo-500/20 transition-all"
+                  >
+                    🎬 Generate Videos with This Script
+                  </button>
                 </div>
               )}
             </div>
@@ -854,3 +1087,6 @@ export default function Home() {
     </main>
   );
 }
+
+// Re-export VideoScript type so it can be used in other files if needed
+export type { VideoScript };

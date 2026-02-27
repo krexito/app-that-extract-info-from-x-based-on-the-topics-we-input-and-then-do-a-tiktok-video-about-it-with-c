@@ -103,6 +103,53 @@ function buildVideoScript(
   };
 }
 
+// ─── Apply user edits to a generated script ──────────────────────────────────
+
+function applyEditsToScript(
+  base: VideoScript,
+  editedHook?: string,
+  editedSections?: { heading: string; content: string; duration: number }[],
+  editedCta?: string
+): VideoScript {
+  const hook = editedHook?.trim() || base.hook;
+  const sections = editedSections && editedSections.length > 0 ? editedSections : base.sections;
+  const cta = editedCta?.trim() || base.call_to_action;
+
+  // Rebuild captions from edited content
+  const captions: VideoScript["captions"] = [];
+  let currentTime = 0;
+
+  captions.push({ text: hook, start_time: 0, end_time: 3, style: "title" });
+  currentTime = 3;
+
+  const summaryShort = base.captions.find((c) => c.style === "subtitle")?.text || "";
+  if (summaryShort) {
+    captions.push({ text: summaryShort, start_time: currentTime, end_time: currentTime + 5, style: "subtitle" });
+    currentTime += 5;
+  }
+
+  sections.forEach((section, i) => {
+    captions.push({
+      text: `${i + 1}️⃣ ${section.content}`,
+      start_time: currentTime,
+      end_time: currentTime + section.duration,
+      style: i === 0 ? "highlight" : "normal",
+    });
+    currentTime += section.duration;
+  });
+
+  captions.push({ text: cta, start_time: currentTime, end_time: currentTime + 4, style: "highlight" });
+
+  return {
+    ...base,
+    hook,
+    sections,
+    call_to_action: cta,
+    captions,
+    total_duration: currentTime + 4,
+  };
+}
+
 // ─── D-ID API (trial: 20 free credits) ───────────────────────────────────────
 
 async function generateWithDID(
@@ -325,11 +372,14 @@ async function generateVideoWithAI(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { topic, summary, key_points, hashtags } = body as {
+    const { topic, summary, key_points, hashtags, edited_hook, edited_sections, edited_cta } = body as {
       topic: string;
       summary: string;
       key_points: string[];
       hashtags: string[];
+      edited_hook?: string;
+      edited_sections?: { heading: string; content: string; duration: number }[];
+      edited_cta?: string;
     };
 
     if (!topic || !summary || !key_points) {
@@ -339,7 +389,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const script = buildVideoScript(topic, summary, key_points, hashtags || []);
+    // Build base script, then override with user edits if provided
+    let script = buildVideoScript(topic, summary, key_points, hashtags || []);
+    if (edited_hook || edited_sections || edited_cta) {
+      script = applyEditsToScript(script, edited_hook, edited_sections, edited_cta);
+    }
     const videoResult = await generateVideoWithAI(script, topic);
 
     const statusMessages: Record<string, string> = {

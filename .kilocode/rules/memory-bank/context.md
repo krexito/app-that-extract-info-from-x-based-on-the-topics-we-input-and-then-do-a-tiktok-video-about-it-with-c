@@ -17,6 +17,9 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] X → TikTok AI Video Creator app built
 - [x] 5 bugs fixed + free API alternatives (Reddit, HuggingFace, Pexels)
 - [x] High-priority UX improvements: video preview player, multi-topic parallel generation, localStorage history, copy script button, data source badge
+- [x] Feature 5: Script editing step — new `script_review` pipeline stage with editable hook, sections, CTA before video generation
+- [x] Feature 7: Data source badge confirmed working (twitter/reddit/mock shown in UI)
+- [x] Feature 10: Vercel Cron scheduler — `/api/cron/auto-generate` runs hourly, `vercel.json` configured
 
 ## Current Structure
 
@@ -26,9 +29,11 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 | `src/app/layout.tsx` | Root layout | ✅ Ready |
 | `src/app/globals.css` | Global styles + custom animations | ✅ Ready |
 | `src/app/api/extract-x/route.ts` | POST: Extract posts/summary/key points from X | ✅ Ready |
-| `src/app/api/generate-video/route.ts` | POST: Build video script + captions, call D-ID/Runway | ✅ Ready |
+| `src/app/api/generate-video/route.ts` | POST: Build video script + captions, call D-ID/Runway; accepts edited_hook/sections/cta | ✅ Ready |
 | `src/app/api/upload-tiktok/route.ts` | POST: Upload video to TikTok via Content Posting API | ✅ Ready |
-| `.env.local.example` | API key documentation | ✅ Ready |
+| `src/app/api/cron/auto-generate/route.ts` | GET: Vercel Cron — auto-extract + generate + upload every hour | ✅ Ready |
+| `vercel.json` | Vercel Cron schedule (0 * * * * = every hour) | ✅ Ready |
+| `.env.local.example` | API key documentation (incl. CRON_SECRET, AUTO_TOPICS) | ✅ Ready |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
 ## Current Focus
