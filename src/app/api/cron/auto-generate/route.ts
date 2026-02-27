@@ -27,7 +27,14 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  // FIX #1a: Bloquear si CRON_SECRET no está configurado
+  if (!cronSecret) {
+    return NextResponse.json(
+      { error: "Cron not configured: CRON_SECRET env var is missing" },
+      { status: 503 }
+    );
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -40,9 +47,11 @@ export async function GET(request: NextRequest) {
     ? rawTopics.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3)
     : DEFAULT_TOPICS.slice(0, 3);
 
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+  // FIX #1b: Usar NEXT_PUBLIC_BASE_URL como fuente de verdad
+  // VERCEL_URL cambia en cada deploy y apunta a URLs de preview, no producción
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
   const results: {
     topic: string;
@@ -150,12 +159,19 @@ export async function GET(request: NextRequest) {
   const successCount = results.filter((r) => r.status === "success").length;
   console.log(`[cron] auto-generate done: ${successCount}/${results.length} succeeded`);
 
-  return NextResponse.json({
-    ok: true,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    topics,
-    results,
-    summary: `${successCount}/${results.length} videos generated successfully`,
-  });
+  // FIX #1c: Devolver 207 si hubo fallos parciales (en vez de siempre 200 OK)
+  const hasErrors = results.some((r) => r.status === "error");
+  const httpStatus = successCount === 0 ? 500 : hasErrors ? 207 : 200;
+
+  return NextResponse.json(
+    {
+      ok: successCount > 0,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      topics,
+      results,
+      summary: `${successCount}/${results.length} videos generated successfully`,
+    },
+    { status: httpStatus }
+  );
 }
