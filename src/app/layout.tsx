@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Next.js Template",
-  description: "A minimal Next.js starter template",
+  title: "X → TikTok AI Video Creator",
+  description: "Extract trending topics from X and auto-generate TikTok videos with captions",
 };
 
 export default function RootLayout({
