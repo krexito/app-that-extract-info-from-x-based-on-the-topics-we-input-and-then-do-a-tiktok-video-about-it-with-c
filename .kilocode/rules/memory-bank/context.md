@@ -14,23 +14,27 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] ESLint configuration
 - [x] Memory bank documentation
 - [x] Recipe system for common features
+- [x] X → TikTok AI Video Creator app built
 
 ## Current Structure
 
 | File/Directory | Purpose | Status |
 |----------------|---------|--------|
-| `src/app/page.tsx` | Home page | ✅ Ready |
+| `src/app/page.tsx` | Main UI: topic input, pipeline tracker, results | ✅ Ready |
 | `src/app/layout.tsx` | Root layout | ✅ Ready |
-| `src/app/globals.css` | Global styles | ✅ Ready |
+| `src/app/globals.css` | Global styles + custom animations | ✅ Ready |
+| `src/app/api/extract-x/route.ts` | POST: Extract posts/summary/key points from X | ✅ Ready |
+| `src/app/api/generate-video/route.ts` | POST: Build video script + captions, call D-ID/Runway | ✅ Ready |
+| `src/app/api/upload-tiktok/route.ts` | POST: Upload video to TikTok via Content Posting API | ✅ Ready |
+| `.env.local.example` | API key documentation | ✅ Ready |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
 ## Current Focus
 
-The template is ready. Next steps depend on user requirements:
-
-1. What type of application to build
-2. What features are needed
-3. Design/branding preferences
+App is fully built. Users need to configure API keys in `.env.local` to unlock full functionality:
+- `TWITTER_BEARER_TOKEN` — real X data (mock data used without it)
+- `DID_API_KEY` or `RUNWAY_API_KEY` — AI video generation
+- `TIKTOK_ACCESS_TOKEN` + `TIKTOK_OPEN_ID` — auto-upload to TikTok
 
 ## Quick Start Guide
 
