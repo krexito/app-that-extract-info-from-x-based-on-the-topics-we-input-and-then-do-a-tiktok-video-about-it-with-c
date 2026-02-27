@@ -30,7 +30,10 @@ export interface GenerateVideoResponse {
   status: "script_ready" | "generating" | "ready" | "error";
   message: string;
   job_id?: string;
+  video_source?: "did" | "runway" | "huggingface" | "pexels" | "none";
 }
+
+// ─── Script builder ───────────────────────────────────────────────────────────
 
 function buildVideoScript(
   topic: string,
@@ -47,11 +50,9 @@ function buildVideoScript(
     duration: 8,
   }));
 
-  // Build captions with timing
   const captions: Caption[] = [];
   let currentTime = 0;
 
-  // Hook caption
   captions.push({
     text: hook,
     start_time: 0,
@@ -60,7 +61,6 @@ function buildVideoScript(
   });
   currentTime = 3;
 
-  // Summary caption
   const summaryShort =
     summary.length > 120 ? summary.substring(0, 120) + "..." : summary;
   captions.push({
@@ -71,7 +71,6 @@ function buildVideoScript(
   });
   currentTime += 5;
 
-  // Key points captions
   sections.forEach((section, i) => {
     captions.push({
       text: `${i + 1}️⃣ ${section.content}`,
@@ -82,7 +81,6 @@ function buildVideoScript(
     currentTime += section.duration;
   });
 
-  // CTA caption
   const cta = `Follow for more! ${hashtags.slice(0, 4).join(" ")}`;
   captions.push({
     text: cta,
@@ -105,93 +103,224 @@ function buildVideoScript(
   };
 }
 
+// ─── D-ID API (trial: 20 free credits) ───────────────────────────────────────
+
+async function generateWithDID(
+  script: VideoScript
+): Promise<{ video_url?: string; job_id?: string; status: string } | null> {
+  const didApiKey = process.env.DID_API_KEY;
+  if (!didApiKey) return null;
+
+  try {
+    const scriptText = [
+      script.hook,
+      ...script.sections.map((s) => s.content),
+      script.call_to_action,
+    ].join(". ");
+
+    const response = await axios.post(
+      "https://api.d-id.com/talks",
+      {
+        script: {
+          type: "text",
+          input: scriptText,
+          provider: {
+            type: "microsoft",
+            voice_id: "en-US-JennyNeural",
+          },
+        },
+        config: {
+          fluent: true,
+          pad_audio: 0,
+        },
+        source_url:
+          "https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.jpeg",
+      },
+      {
+        headers: {
+          Authorization: `Basic ${didApiKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return { job_id: response.data.id, status: "generating" };
+  } catch (error) {
+    console.error("D-ID API error:", error);
+    return null;
+  }
+}
+
+// ─── Runway ML API (paid, ~$0.05/sec) ────────────────────────────────────────
+
+async function generateWithRunway(
+  script: VideoScript,
+  topic: string
+): Promise<{ video_url?: string; job_id?: string; status: string } | null> {
+  const runwayApiKey = process.env.RUNWAY_API_KEY;
+  if (!runwayApiKey) return null;
+
+  try {
+    const response = await axios.post(
+      "https://api.runwayml.com/v1/tasks",
+      {
+        taskType: "text_to_video",
+        model: "gen3a_turbo",
+        textPrompt: `TikTok style video about ${topic}: ${script.hook}`,
+        duration: Math.min(script.total_duration, 10),
+        ratio: "768:1280",
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${runwayApiKey}`,
+          "Content-Type": "application/json",
+          "X-Runway-Version": "2024-11-06",
+        },
+      }
+    );
+
+    return { job_id: response.data.id, status: "generating" };
+  } catch (error) {
+    console.error("Runway API error:", error);
+    return null;
+  }
+}
+
+// ─── Hugging Face Inference API (FREE tier available) ────────────────────────
+// Sign up at https://huggingface.co → Settings → Access Tokens → New token (free)
+// Model: damo-vilab/text-to-video-ms-1.7b (generates short clips)
+
+async function generateWithHuggingFace(
+  script: VideoScript,
+  topic: string
+): Promise<{ video_url?: string; job_id?: string; status: string } | null> {
+  const hfToken = process.env.HUGGINGFACE_API_TOKEN;
+  if (!hfToken) return null;
+
+  try {
+    const prompt = `${topic}: ${script.hook}. ${script.sections[0]?.content || ""}`;
+
+    const response = await axios.post(
+      "https://api-inference.huggingface.co/models/damo-vilab/text-to-video-ms-1.7b",
+      { inputs: prompt.substring(0, 200) },
+      {
+        headers: {
+          Authorization: `Bearer ${hfToken}`,
+          "Content-Type": "application/json",
+        },
+        responseType: "arraybuffer",
+        timeout: 60000, // HF cold starts can be slow
+      }
+    );
+
+    // HF returns raw video bytes — convert to base64 data URL
+    const videoBuffer = Buffer.from(response.data as ArrayBuffer);
+    const base64 = videoBuffer.toString("base64");
+    const videoDataUrl = `data:video/mp4;base64,${base64}`;
+
+    return {
+      video_url: videoDataUrl,
+      status: "ready",
+    };
+  } catch (error) {
+    console.error("Hugging Face API error:", error);
+    return null;
+  }
+}
+
+// ─── Pexels API (FREE — 200 req/hour, no credit card) ────────────────────────
+// Sign up at https://www.pexels.com/api/ → free API key instantly
+// Returns a relevant stock video URL to use as background
+
+async function fetchPexelsVideo(
+  topic: string
+): Promise<{ video_url?: string; thumbnail_url?: string; status: string } | null> {
+  const pexelsKey = process.env.PEXELS_API_KEY;
+  if (!pexelsKey) return null;
+
+  try {
+    const response = await axios.get("https://api.pexels.com/videos/search", {
+      headers: {
+        Authorization: pexelsKey,
+      },
+      params: {
+        query: topic,
+        per_page: 5,
+        orientation: "portrait", // vertical for TikTok
+        size: "medium",
+      },
+    });
+
+    const videos = response.data?.videos || [];
+    if (videos.length === 0) return null;
+
+    // Pick the first video with a usable file
+    const video = videos[0];
+    const videoFile = video.video_files?.find(
+      (f: { quality: string; width: number }) =>
+        f.quality === "hd" || f.width <= 1080
+    ) || video.video_files?.[0];
+
+    if (!videoFile?.link) return null;
+
+    return {
+      video_url: videoFile.link,
+      thumbnail_url: video.image,
+      status: "ready",
+    };
+  } catch (error) {
+    console.error("Pexels API error:", error);
+    return null;
+  }
+}
+
+// ─── Orchestrator ─────────────────────────────────────────────────────────────
+
 async function generateVideoWithAI(
   script: VideoScript,
   topic: string
-): Promise<{ video_url?: string; thumbnail_url?: string; job_id?: string; status: string }> {
-  // Try D-ID API for AI video generation
-  const didApiKey = process.env.DID_API_KEY;
-
-  if (didApiKey) {
-    try {
-      const scriptText = [
-        script.hook,
-        ...script.sections.map((s) => s.content),
-        script.call_to_action,
-      ].join(". ");
-
-      const response = await axios.post(
-        "https://api.d-id.com/talks",
-        {
-          script: {
-            type: "text",
-            input: scriptText,
-            provider: {
-              type: "microsoft",
-              voice_id: "en-US-JennyNeural",
-            },
-          },
-          config: {
-            fluent: true,
-            pad_audio: 0,
-          },
-          source_url:
-            "https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.jpeg",
-        },
-        {
-          headers: {
-            Authorization: `Basic ${didApiKey}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      return {
-        job_id: response.data.id,
-        status: "generating",
-      };
-    } catch (error) {
-      console.error("D-ID API error:", error);
-    }
+): Promise<{
+  video_url?: string;
+  thumbnail_url?: string;
+  job_id?: string;
+  status: string;
+  video_source: GenerateVideoResponse["video_source"];
+}> {
+  // Priority 1: D-ID (AI avatar, trial free)
+  const didResult = await generateWithDID(script);
+  if (didResult) {
+    return { ...didResult, video_source: "did" };
   }
 
-  // Try Runway ML API
-  const runwayApiKey = process.env.RUNWAY_API_KEY;
-  if (runwayApiKey) {
-    try {
-      const response = await axios.post(
-        "https://api.runwayml.com/v1/tasks",
-        {
-          taskType: "text_to_video",
-          model: "gen3a_turbo",
-          textPrompt: `TikTok style video about ${topic}: ${script.hook}`,
-          duration: Math.min(script.total_duration, 10),
-          ratio: "768:1280",
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${runwayApiKey}`,
-            "Content-Type": "application/json",
-            "X-Runway-Version": "2024-11-06",
-          },
-        }
-      );
-
-      return {
-        job_id: response.data.id,
-        status: "generating",
-      };
-    } catch (error) {
-      console.error("Runway API error:", error);
-    }
+  // Priority 2: Runway ML (paid but high quality)
+  const runwayResult = await generateWithRunway(script, topic);
+  if (runwayResult) {
+    return { ...runwayResult, video_source: "runway" };
   }
 
-  // Fallback: return script-ready status (user can use script to create video manually)
+  // Priority 3: Hugging Face (free tier, lower quality)
+  const hfResult = await generateWithHuggingFace(script, topic);
+  if (hfResult) {
+    return { ...hfResult, video_source: "huggingface" };
+  }
+
+  // Priority 4: Pexels stock video (free, no AI generation)
+  const pexelsResult = await fetchPexelsVideo(topic);
+  if (pexelsResult) {
+    return { ...pexelsResult, video_source: "pexels" };
+  }
+
+  // Fallback: script only
   return {
     status: "script_ready",
-    thumbnail_url: `https://placehold.co/1080x1920/1a1a2e/6366f1?text=${encodeURIComponent(topic.substring(0, 20))}`,
+    thumbnail_url: `https://placehold.co/1080x1920/1a1a2e/6366f1?text=${encodeURIComponent(
+      topic.substring(0, 20)
+    )}`,
+    video_source: "none",
   };
 }
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   try {
@@ -210,11 +339,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build the video script
     const script = buildVideoScript(topic, summary, key_points, hashtags || []);
-
-    // Attempt AI video generation
     const videoResult = await generateVideoWithAI(script, topic);
+
+    const statusMessages: Record<string, string> = {
+      script_ready:
+        "Video script generated! Add a free API key to auto-generate videos: HUGGINGFACE_API_TOKEN (free) or PEXELS_API_KEY (free stock videos).",
+      generating:
+        "Video is being generated by AI. Check back in a moment.",
+      ready: "Video ready! 🎬",
+    };
 
     const response: GenerateVideoResponse = {
       script,
@@ -222,12 +356,10 @@ export async function POST(request: NextRequest) {
       thumbnail_url: videoResult.thumbnail_url,
       status: videoResult.status as GenerateVideoResponse["status"],
       message:
-        videoResult.status === "script_ready"
-          ? "Video script generated! Configure DID_API_KEY or RUNWAY_API_KEY to auto-generate videos."
-          : videoResult.status === "generating"
-          ? "Video is being generated by AI. Check back in a moment."
-          : "Video ready!",
+        statusMessages[videoResult.status] ||
+        "Video processing complete.",
       job_id: videoResult.job_id,
+      video_source: videoResult.video_source,
     };
 
     return NextResponse.json(response);
