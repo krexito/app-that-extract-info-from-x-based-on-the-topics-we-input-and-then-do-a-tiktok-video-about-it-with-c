@@ -22,6 +22,7 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] Feature 10: Vercel Cron scheduler — `/api/cron/auto-generate` runs hourly, `vercel.json` configured
 - [x] Debugging session: 6 bugs fixed, 3 UX improvements, Vitest test suite with 37 tests (2 files)
 - [x] Multi-source + multi-destination controls: users can choose X/Reddit/both for extraction and TikTok/YouTube Shorts for publishing (YouTube currently manual upload link)
+- [x] YouTube Shorts manual upload URL fixed to use a valid generic upload endpoint (removed invalid placeholder channel path)
 
 ## Current Structure
 
@@ -103,3 +104,4 @@ export async function GET() {
 |------|---------|
 | Initial | Template created with base setup |
 | 2026-02-27 | Debugging + improvements: 6 bugs fixed, 3 UX features added, Vitest test suite (37 tests, 2 files), `src/lib/script-utils.ts` extracted, `bun test` script added |
+| 2026-03-01 | PR follow-up fix: replaced invalid YouTube Studio placeholder channel upload link with a valid generic YouTube upload URL in `src/app/api/upload-tiktok/route.ts`. |
