@@ -12,8 +12,8 @@ bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), enter a topic, and click **Create TikTok Video**.  
-The full pipeline runs with realistic mock data.
+Open [http://localhost:3000](http://localhost:3000), add one or more topics, choose source (**X / Reddit / both**) and destination (**TikTok / YouTube Shorts**), then run the pipeline.  
+The full workflow works with realistic mock data when APIs are not configured.
 
 ---
 
@@ -171,3 +171,10 @@ bun lint          # ESLint check
 - Use `.env.local.example` (no real values) for documentation
 - Rotate API keys if accidentally exposed
 - TikTok tokens should be stored securely and refreshed before expiry
+
+
+### Test source and destination controls:
+1. Select **Data source**: `X + Reddit`, `Only X`, or `Only Reddit`
+2. Select **Publish destination**: `TikTok` or `YouTube Shorts`
+3. Run the flow and verify extraction + script + generated video
+4. For YouTube Shorts, the app currently returns a direct YouTube Studio upload link for manual publishing

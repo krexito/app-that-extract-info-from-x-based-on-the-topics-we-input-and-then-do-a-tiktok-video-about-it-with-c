@@ -52,6 +52,8 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
+  const [sourcePreference, setSourcePreference] = useState<"both" | "x" | "reddit">("both");
+  const [publishPlatform, setPublishPlatform] = useState<"tiktok" | "youtube_shorts">("tiktok");
 
   // Script editing state — one editable script per topic
   const [editableScripts, setEditableScripts] = useState<EditableScript[]>([]);
@@ -146,7 +148,7 @@ export default function Home() {
       detail: videoData.length > 0 ? `${videoData.length} video(s) generated` : undefined,
     },
     {
-      label: "Upload to TikTok",
+      label: publishPlatform === "tiktok" ? "Upload to TikTok" : "Prepare YouTube Shorts Upload",
       status:
         step === "uploading"
           ? "active"
@@ -155,7 +157,16 @@ export default function Home() {
           : step === "error" && videoData.length > 0 && !uploadData
           ? "error"
           : "pending",
-      detail: uploadData?.status === "uploaded" ? "Live on TikTok! 🎉" : uploadData?.status === "no_credentials" ? "Manual upload needed" : undefined,
+      detail:
+        uploadData?.status === "uploaded"
+          ? publishPlatform === "tiktok"
+            ? "Live on TikTok! 🎉"
+            : "Published on YouTube Shorts! 🎉"
+          : uploadData?.status === "no_credentials"
+          ? publishPlatform === "tiktok"
+            ? "Manual TikTok upload needed"
+            : "Manual YouTube upload needed"
+          : undefined,
     },
   ];
 
@@ -278,7 +289,7 @@ export default function Home() {
       const res = await fetch("/api/extract-x", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topics: validTopics }),
+        body: JSON.stringify({ topics: validTopics, source_preference: sourcePreference }),
       });
       if (!res.ok) {
         let errMsg = `Server error (${res.status})`;
@@ -372,6 +383,7 @@ export default function Home() {
           description: primaryTopic.summary,
           hashtags: primaryTopic.hashtags,
           captions_text: captionsText,
+          platform: publishPlatform,
         }),
       });
       const data = await res.json();
@@ -419,7 +431,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="font-bold text-lg leading-none gradient-text">X → TikTok</h1>
-              <p className="text-xs text-white/40 mt-0.5">AI Video Creator</p>
+              <p className="text-xs text-white/40 mt-0.5">X/Reddit → TikTok/Shorts AI Creator</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -479,7 +491,7 @@ export default function Home() {
           <div className="glass-card rounded-2xl p-6 space-y-4">
             <div>
               <h2 className="font-semibold text-white/90 mb-1">Topics</h2>
-              <p className="text-xs text-white/40">Enter topics to extract from X and create TikTok videos about</p>
+              <p className="text-xs text-white/40">Enter topics to extract from X/Reddit, turn into AI videos, and publish to TikTok or YouTube Shorts</p>
             </div>
 
             <div className="space-y-2">
@@ -517,6 +529,34 @@ export default function Home() {
               </button>
             )}
 
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">Source</label>
+                <select
+                  value={sourcePreference}
+                  onChange={(e) => setSourcePreference(e.target.value as "both" | "x" | "reddit")}
+                  disabled={isRunning || step === "script_review"}
+                  className="w-full bg-transparent text-sm text-white/80 focus:outline-none"
+                >
+                  <option className="bg-black" value="both">X + Reddit</option>
+                  <option className="bg-black" value="x">Only X</option>
+                  <option className="bg-black" value="reddit">Only Reddit</option>
+                </select>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                <label className="block text-[10px] uppercase tracking-wider text-white/40 mb-1">Publish</label>
+                <select
+                  value={publishPlatform}
+                  onChange={(e) => setPublishPlatform(e.target.value as "tiktok" | "youtube_shorts")}
+                  disabled={isRunning || step === "script_review"}
+                  className="w-full bg-transparent text-sm text-white/80 focus:outline-none"
+                >
+                  <option className="bg-black" value="tiktok">TikTok</option>
+                  <option className="bg-black" value="youtube_shorts">YouTube Shorts</option>
+                </select>
+              </div>
+            </div>
+
             <button
               onClick={
                 isRunning ? undefined
@@ -549,7 +589,7 @@ export default function Home() {
               ) : step === "script_review" ? (
                 "✏️ Review scripts below →"
               ) : (
-                "🚀 Create TikTok Video"
+                "🚀 Extract Topics + Create Shorts"
               )}
             </button>
 
@@ -617,6 +657,8 @@ export default function Home() {
                 { key: "TWITTER_BEARER_TOKEN", label: "X / Twitter", optional: true },
                 { key: "DID_API_KEY", label: "D-ID (video gen)", optional: true },
                 { key: "RUNWAY_API_KEY", label: "Runway ML (video)", optional: true },
+                { key: "HUGGINGFACE_API_TOKEN", label: "Hugging Face (free video)", optional: true },
+                { key: "PEXELS_API_KEY", label: "Pexels (free stock video)", optional: true },
                 { key: "TIKTOK_ACCESS_TOKEN", label: "TikTok upload", optional: true },
                 { key: "TIKTOK_OPEN_ID", label: "TikTok Open ID", optional: true },
               ].map((item) => (
@@ -637,7 +679,7 @@ export default function Home() {
               <h2 className="text-xl font-bold gradient-text mb-2">Ready to Create</h2>
               <p className="text-white/40 text-sm max-w-sm">
                 Enter your topics on the left, then click{" "}
-                <span className="text-indigo-400">Create TikTok Video</span> to extract trending content from X and auto-generate TikTok videos with captions.
+                Click <span className="text-indigo-400">Extract Topics + Create Shorts</span> to pull trends from X/Reddit, generate AI videos with captions, and publish to TikTok or YouTube Shorts.
               </p>
               <div className="mt-8 grid grid-cols-4 gap-4 w-full max-w-md">
                 {["Extract X Data", "Edit Script", "Generate Videos", "Upload TikTok"].map((label, i) => (
