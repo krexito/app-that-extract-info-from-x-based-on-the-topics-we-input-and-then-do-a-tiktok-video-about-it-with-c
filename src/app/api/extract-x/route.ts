@@ -20,6 +20,8 @@ export interface ExtractXResponse {
   data_source?: "twitter" | "reddit" | "mock";
 }
 
+type SourcePreference = "x" | "reddit" | "both";
+
 // ─── Twitter / X API ────────────────────────────────────────────────────────
 
 async function fetchFromTwitterAPI(topic: string): Promise<XPost[] | null> {
@@ -255,7 +257,15 @@ function generateSummary(posts: XPost[], topic: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { topics } = body as { topics: string[] };
+    const { topics, source_preference } = body as {
+      topics: string[];
+      source_preference?: SourcePreference;
+    };
+
+    const sourcePreference: SourcePreference =
+      source_preference === "x" || source_preference === "reddit"
+        ? source_preference
+        : "both";
 
     if (!topics || !Array.isArray(topics) || topics.length === 0) {
       return NextResponse.json(
@@ -270,14 +280,15 @@ export async function POST(request: NextRequest) {
       let posts: XPost[] | null = null;
       let dataSource: ExtractXResponse["data_source"] = "mock";
 
-      // 1. Try Twitter/X API (requires TWITTER_BEARER_TOKEN)
-      posts = await fetchFromTwitterAPI(topic);
-      if (posts && posts.length > 0) {
-        dataSource = "twitter";
+      // Source selection
+      if (sourcePreference === "x" || sourcePreference === "both") {
+        posts = await fetchFromTwitterAPI(topic);
+        if (posts && posts.length > 0) {
+          dataSource = "twitter";
+        }
       }
 
-      // 2. Fallback: Reddit public API (free, no key needed)
-      if (!posts || posts.length === 0) {
+      if ((!posts || posts.length === 0) && (sourcePreference === "reddit" || sourcePreference === "both")) {
         posts = await fetchFromReddit(topic);
         if (posts && posts.length > 0) {
           dataSource = "reddit";

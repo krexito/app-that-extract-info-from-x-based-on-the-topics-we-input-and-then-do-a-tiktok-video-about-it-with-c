@@ -21,6 +21,7 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] Feature 7: Data source badge confirmed working (twitter/reddit/mock shown in UI)
 - [x] Feature 10: Vercel Cron scheduler — `/api/cron/auto-generate` runs hourly, `vercel.json` configured
 - [x] Debugging session: 6 bugs fixed, 3 UX improvements, Vitest test suite with 37 tests (2 files)
+- [x] Multi-source + multi-destination controls: users can choose X/Reddit/both for extraction and TikTok/YouTube Shorts for publishing (YouTube currently manual upload link)
 
 ## Current Structure
 
@@ -29,9 +30,9 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 | `src/app/page.tsx` | Main UI: topic input, pipeline tracker, results | ✅ Ready |
 | `src/app/layout.tsx` | Root layout | ✅ Ready |
 | `src/app/globals.css` | Global styles + custom animations | ✅ Ready |
-| `src/app/api/extract-x/route.ts` | POST: Extract posts/summary/key points from X | ✅ Ready |
+| `src/app/api/extract-x/route.ts` | POST: Extract posts/summary/key points from X/Reddit with source preference | ✅ Ready |
 | `src/app/api/generate-video/route.ts` | POST: Build video script + captions, call D-ID/Runway; accepts edited_hook/sections/cta | ✅ Ready |
-| `src/app/api/upload-tiktok/route.ts` | POST: Upload video to TikTok via Content Posting API | ✅ Ready |
+| `src/app/api/upload-tiktok/route.ts` | POST: Upload to TikTok or return YouTube Shorts manual upload link | ✅ Ready |
 | `src/app/api/cron/auto-generate/route.ts` | GET: Vercel Cron — auto-extract + generate + upload every hour | ✅ Ready |
 | `src/lib/script-utils.ts` | Pure utility functions (extractKeyPoints, extractHashtags, etc.) | ✅ Ready |
 | `src/lib/__tests__/script-utils.test.ts` | 17 unit tests for script utilities | ✅ Ready |
