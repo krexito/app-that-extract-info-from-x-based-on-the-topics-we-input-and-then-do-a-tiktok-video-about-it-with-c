@@ -117,7 +117,7 @@ async function uploadToTikTok(
 }
 
 function buildYouTubeShortsResponse(title: string): TikTokUploadResponse {
-  const shareUrl = `https://studio.youtube.com/channel/UC/videos/upload?filter=%5B%5D&title=${encodeURIComponent(title)}`;
+  const shareUrl = `https://www.youtube.com/upload?title=${encodeURIComponent(title)}`;
   return {
     status: "no_credentials",
     platform: "youtube_shorts",
